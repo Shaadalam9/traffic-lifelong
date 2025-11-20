@@ -1,0 +1,10 @@
+[project]
+name = "traffic-lifelong"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pycountry>=24.6.1",
+    "yt-dlp>=2025.11.12",
+]
