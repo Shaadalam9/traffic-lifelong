@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "pycountry>=24.6.1",
+    "pytubefix>=10.3.5",
     "yt-dlp>=2025.11.12",
 ]

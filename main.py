@@ -1,37 +1,50 @@
-import yt_dlp
 import os
+from pytubefix import YouTube  # pyright: ignore[reportMissingImports]
+from pytubefix.cli import on_progress  # pyright: ignore[reportMissingImports]
 import common
 from custom_logger import CustomLogger
 from logmod import logs
 
 logs(show_level=common.get_configs("logger_level"), show_color=True)
-logger = CustomLogger(__name__)  # use custom logger
+logger = CustomLogger(__name__)
 
 
 def download_youtube_live(url):
-    # Set your folder here
     output_folder = common.get_configs("data")
-
-    # Create folder if it doesn't exist
     os.makedirs(output_folder, exist_ok=True)
 
-    ydl_opts = {
-        'format': 'bestvideo[height<=1080]+bestaudio/best[height<=1080]',
-        'live_from_start': True,
+    # Initialize YouTube object with OAuth enabled (no Client needed)
+    yt = YouTube(
+        url,
+        use_oauth=True,           # triggers Google login when needed
+        allow_oauth_cache=True,   # reuse stored OAuth credentials
+        on_progress_callback=on_progress,
+    )
 
-        # Save into the folder: downloads/<title>.mp4
-        'outtmpl': os.path.join(output_folder, '%(title)s.%(ext)s'),
+    # Choose the best progressive MP4 stream (up to 1080p if available)
+    stream = (
+        yt.streams
+        .filter(progressive=True, file_extension="mp4")
+        .order_by("resolution")
+        .desc()
+        .first()
+    )
 
-        'merge_output_format': 'mp4',
+    if not stream:
+        logger.error("No suitable progressive MP4 stream found.")
+        return
 
-        'postprocessors': [{
-            'key': 'FFmpegVideoRemuxer',
-            'preferedformat': 'mp4'
-        }],
-    }
+    safe_title = yt.title.replace("/", "_").replace("\\", "_")
+    filename = f"{safe_title}.mp4"
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+    logger.info(f"Downloading: {yt.title} ({stream.resolution})")
+
+    stream.download(
+        output_path=output_folder,
+        filename=filename,
+    )
+
+    logger.info(f"Download complete: {os.path.join(output_folder, filename)}")
 
 
 if __name__ == "__main__":
