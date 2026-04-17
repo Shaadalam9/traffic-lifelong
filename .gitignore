@@ -112,7 +112,9 @@ secret
 .mypi.ini
 .venv
 
-
 # Saved files
 /output
 /data
+
+# weight files
+yolo11s.pt
