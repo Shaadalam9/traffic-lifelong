@@ -15,6 +15,7 @@ dependencies = [
     "pytesseract>=0.3.13",
     "pytubefix>=10.3.5",
     "secretstorage>=3.5.0",
+    "tqdm>=4.67.3",
     "ultralytics>=8.4.38",
     "yt-dlp>=2025.11.12",
 ]

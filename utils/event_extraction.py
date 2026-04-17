@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 import pandas as pd
+from tqdm.auto import tqdm
 
 from utils.base import PipelineStage
 from utils.geometry_utils import bbox_center, point_to_polyline_distance
@@ -12,43 +11,48 @@ from utils.io_utils import read_json, write_json
 class EventExtractionPipeline(PipelineStage):
     def run(self) -> None:
         scene = read_json(self.config.scene_regions_json)
-        regions = scene.get("regions", {})
-        track_files = sorted(self.config.tracking_output_root.rglob("tracks.csv"))
+        regions = scene.get('regions', {})
+        track_files = sorted(self.config.tracking_output_root.rglob('tracks.csv'))
         if not track_files:
-            raise FileNotFoundError("No tracks.csv files found under tracking outputs")
+            raise FileNotFoundError('No tracks.csv files found under tracking outputs')
 
-        for tracks_csv in track_files:
-            events_csv = tracks_csv.parent / "events.csv"
-            debug_json = tracks_csv.parent / "events_debug.json"
+        self.logger.info(f'Found {len(track_files)} track file(s) for event extraction')
+        file_bar = tqdm(track_files, desc='Extracting events', unit='file')
+        for tracks_csv in file_bar:
+            file_bar.set_postfix_str(tracks_csv.parent.name)
+            events_csv = tracks_csv.parent / 'events.csv'
+            debug_json = tracks_csv.parent / 'events_debug.json'
 
             if events_csv.exists() and self.config.skip_if_output_exists and not self.config.overwrite_existing_tracking:
-                self.logger.info(f"Skipping existing events for {tracks_csv.parent.name}")
+                self.logger.info(f'Skipping existing events for {tracks_csv.parent.name}')
                 continue
 
             df = pd.read_csv(tracks_csv)
             if df.empty:
                 pd.DataFrame([]).to_csv(events_csv, index=False)
-                write_json(debug_json, {"events": [], "reason": "empty_tracks"})
+                write_json(debug_json, {'events': [], 'reason': 'empty_tracks'})
                 continue
 
             rows = []
-            debug = {"events": []}
-
-            for track_id, group in df.groupby("track_id"):
-                group = group.sort_values("frame_idx")
+            debug = {'events': []}
+            grouped_items = list(df.groupby('track_id'))
+            track_bar = tqdm(grouped_items, desc=f'Tracks in {tracks_csv.parent.name}', unit='track', leave=False)
+            for track_id, group in track_bar:
+                track_bar.set_postfix_str(str(track_id))
+                group = group.sort_values('frame_idx')
                 if len(group) < self.config.min_track_points:
                     continue
 
-                start_sec = float(group["timestamp_sec"].min())
-                end_sec = float(group["timestamp_sec"].max())
+                start_sec = float(group['timestamp_sec'].min())
+                end_sec = float(group['timestamp_sec'].max())
                 duration_sec = end_sec - start_sec
                 if duration_sec < self.config.min_track_duration_sec:
                     continue
 
                 first = group.iloc[0]
                 last = group.iloc[-1]
-                start_pt = bbox_center(first["x1"], first["y1"], first["x2"], first["y2"])
-                end_pt = bbox_center(last["x1"], last["y1"], last["x2"], last["y2"])
+                start_pt = bbox_center(first['x1'], first['y1'], first['x2'], first['y2'])
+                end_pt = bbox_center(last['x1'], last['y1'], last['x2'], last['y2'])
 
                 entry_boundary, entry_distance = self._nearest_boundary(start_pt, regions)
                 exit_boundary, exit_distance = self._nearest_boundary(end_pt, regions)
@@ -56,54 +60,55 @@ class EventExtractionPipeline(PipelineStage):
                 if self.config.drop_tracks_without_required_entry and entry_boundary != self.config.required_entry_boundary:
                     continue
 
-                route_type = self.config.exit_to_route.get(exit_boundary, "unknown")
-                mean_conf = float(group["confidence"].mean())
-                mean_width = float(group["width"].mean())
-                mean_height = float(group["height"].mean())
+                route_type = self.config.exit_to_route.get(exit_boundary, 'unknown')
+                mean_conf = float(group['confidence'].mean())
+                mean_width = float(group['width'].mean())
+                mean_height = float(group['height'].mean())
 
                 row = {
-                    "event_id": f"{first['clip_id']}_{int(track_id)}",
-                    "video_id": first["video_id"],
-                    "clip_id": first["clip_id"],
-                    "track_id": int(track_id),
-                    "start_frame": int(group["frame_idx"].min()),
-                    "end_frame": int(group["frame_idx"].max()),
-                    "start_time_sec": round(start_sec, 3),
-                    "end_time_sec": round(end_sec, 3),
-                    "duration_sec": round(duration_sec, 3),
-                    "vehicle_class_id": int(first["class_id"]),
-                    "mean_detection_confidence": round(mean_conf, 4),
-                    "entry_zone": entry_boundary,
-                    "exit_zone": exit_boundary,
-                    "route_type": route_type,
-                    "mean_bbox_width": round(mean_width, 3),
-                    "mean_bbox_height": round(mean_height, 3),
-                    "bbox_aspect_ratio": round(mean_width / mean_height, 4) if mean_height else 0.0,
-                    "track_points": int(len(group)),
-                    "source_tracks_csv": str(tracks_csv),
+                    'event_id': f"{first['clip_id']}_{int(track_id)}",
+                    'video_id': first['video_id'],
+                    'clip_id': first['clip_id'],
+                    'track_id': int(track_id),
+                    'start_frame': int(group['frame_idx'].min()),
+                    'end_frame': int(group['frame_idx'].max()),
+                    'start_time_sec': round(start_sec, 3),
+                    'end_time_sec': round(end_sec, 3),
+                    'duration_sec': round(duration_sec, 3),
+                    'vehicle_class_id': int(first['class_id']),
+                    'mean_detection_confidence': round(mean_conf, 4),
+                    'entry_zone': entry_boundary,
+                    'exit_zone': exit_boundary,
+                    'route_type': route_type,
+                    'mean_bbox_width': round(mean_width, 3),
+                    'mean_bbox_height': round(mean_height, 3),
+                    'bbox_aspect_ratio': round(mean_width / mean_height, 4) if mean_height else 0.0,
+                    'track_points': int(len(group)),
+                    'source_tracks_csv': str(tracks_csv),
                 }
                 rows.append(row)
-                debug["events"].append({
-                    "event_id": row["event_id"],
-                    "entry_boundary": entry_boundary,
-                    "entry_distance": entry_distance,
-                    "exit_boundary": exit_boundary,
-                    "exit_distance": exit_distance,
+                debug['events'].append({
+                    'event_id': row['event_id'],
+                    'entry_boundary': entry_boundary,
+                    'entry_distance': entry_distance,
+                    'exit_boundary': exit_boundary,
+                    'exit_distance': exit_distance,
                 })
 
             pd.DataFrame(rows).to_csv(events_csv, index=False)
             write_json(debug_json, debug)
+            self.logger.info(f'Event extraction finished for {tracks_csv.parent.name}: {len(rows)} event(s)')
 
     def _nearest_boundary(self, point: tuple[float, float], regions: dict) -> tuple[str, float]:
-        best_name = "unknown"
-        best_dist = float("inf")
+        best_name = 'unknown'
+        best_dist = float('inf')
         for name, region in regions.items():
-            if "boundary" not in name:
+            if 'boundary' not in name:
                 continue
-            if region.get("type") not in {"polyline", "polygon", "box"}:
+            if region.get('type') not in {'polyline', 'polygon', 'box'}:
                 continue
-            points = region.get("points", [])
-            if region.get("type") == "box" and len(points) == 2:
+            points = region.get('points', [])
+            if region.get('type') == 'box' and len(points) == 2:
                 x1, y1 = points[0]
                 x2, y2 = points[1]
                 box_points = [[x1, y1], [x2, y1], [x2, y2], [x1, y2], [x1, y1]]

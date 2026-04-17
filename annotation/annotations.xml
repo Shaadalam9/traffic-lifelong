@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<annotations>
+  <version>1.1</version>
+  <meta>
+    <job>
+      <id>1</id>
+      <size>1</size>
+      <mode>annotation</mode>
+      <overlap>0</overlap>
+      <bugtracker></bugtracker>
+      <created>2026-04-17 00:33:05.747864+00:00</created>
+      <updated>2026-04-17 10:20:02.156953+00:00</updated>
+      <subset>default</subset>
+      <start_frame>0</start_frame>
+      <stop_frame>0</stop_frame>
+      <frame_filter></frame_filter>
+      <segments>
+        <segment>
+          <id>1</id>
+          <start>0</start>
+          <stop>0</stop>
+          <url>http://localhost:8080/api/jobs/1/dataset/export/api/jobs/1</url>
+        </segment>
+      </segments>
+      <owner>
+        <username>shaadalam.4u</username>
+        <email>shaadalam.4u@gmail.com</email>
+      </owner>
+      <assignee></assignee>
+      <labels>
+        <label>
+          <name>overlay_region</name>
+          <color>#34d1b7</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>gate_bottom</name>
+          <color>#ff007c</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>gate_far_center</name>
+          <color>#ddff33</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>gate_far_right</name>
+          <color>#24b353</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>stop_line_near</name>
+          <color>#b83df5</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>queue_area_near</name>
+          <color>#66ff66</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>ignore_region</name>
+          <color>#fa3253</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>valid_road_region</name>
+          <color>#33ddff</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+        <label>
+          <name>gate_far_left</name>
+          <color>#ff6037</color>
+          <type>polygon</type>
+          <attributes>
+          </attributes>
+        </label>
+      </labels>
+    </job>
+    <dumped>2026-04-17 10:20:13.736246+00:00</dumped>
+  </meta>
+  <image id="0" name="frame_05_31_36.png" width="1920" height="1080">
+    <polygon label="overlay_region" source="manual" occluded="0" points="19.89,26.87;467.50,25.40;470.30,55.40;19.89,59.66" z_order="0">
+    </polygon>
+    <polygon label="overlay_region" source="manual" occluded="0" points="1155.92,32.57;1513.70,34.00;1517.97,71.06;1153.07,69.63" z_order="0">
+    </polygon>
+    <polygon label="overlay_region" source="manual" occluded="0" points="1802.79,9.75;1816.17,79.56;1815.59,112.14;1904.02,108.65;1920.00,30.43;1920.00,25.04;1899.95,2.76;1868.53,15.56;1840.03,34.76" z_order="0">
+    </polygon>
+    <polygon label="overlay_region" source="manual" occluded="0" points="23.49,818.10;98.15,792.03;159.77,787.29;217.24,803.28;268.19,818.10;281.23,885.64;272.34,952.00;261.68,1010.07;234.42,1033.17;182.28,1046.21;77.41,1042.65;11.64,1033.17;7.49,962.67;3.94,945.48;3.34,888.60;14.01,825.21" z_order="0">
+    </polygon>
+    <polygon label="overlay_region" source="manual" occluded="0" points="1487.40,870.70;1488.94,1058.22;1680.14,1057.15;1699.30,1057.20;1697.14,992.89;1819.30,994.00;1817.20,948.80;1743.30,948.30;1742.30,874.50" z_order="0">
+    </polygon>
+    <polygon label="valid_road_region" source="manual" occluded="0" points="2.41,479.20;0.99,604.29;356.38,538.90;359.22,457.87;343.58,456.45;342.16,435.13" z_order="0">
+    </polygon>
+    <polygon label="valid_road_region" source="manual" occluded="0" points="1068.20,284.30;1152.44,277.34;1166.66,300.08;1155.28,315.72;1239.15,337.04;1293.17,344.15;1276.12,362.63;1190.82,401.01;1136.80,413.81;1122.59,389.64;1109.79,410.96;1095.58,426.60;1112.64,437.97;1048.67,456.45;903.67,489.15;663.43,527.53;544.02,547.43;487.16,557.38;464.41,543.17;440.25,538.90;440.25,519.00;408.97,507.63;391.91,538.90;377.70,524.69;376.28,462.14;397.60,453.61;397.60,428.02;535.49,406.70;694.70,379.69;866.71,352.68;987.54,331.36;1042.98,305.77" z_order="0">
+    </polygon>
+    <polygon label="valid_road_region" source="manual" occluded="0" points="2.70,680.10;7.15,820.58;126.80,776.20;270.60,812.80;285.30,890.00;264.60,1013.90;202.50,1049.30;8.57,1044.20;7.15,1076.96;1483.60,1077.00;1480.80,867.90;1747.70,873.60;1749.40,942.80;1821.20,944.20;1823.70,996.60;1707.80,995.77;1710.90,1073.50;1920.00,1074.40;1912.90,814.88;1914.33,567.05;1858.78,508.65;1851.66,455.95;1769.04,447.41;1754.80,418.92;1739.13,400.40;1712.07,379.04;1676.46,357.67;1636.58,342.01;1575.33,329.19;1514.09,320.64;1465.66,304.97;1421.51,299.28;1378.78,292.15;1336.05,290.73;1296.17,287.88;1274.80,276.49;1257.71,292.15;1299.01,312.09;1327.50,323.49;1347.44,340.58;1336.05,369.07;1301.86,384.74;1253.44,404.68;1199.31,426.04;1129.52,441.71;1025.54,465.92;863.17,504.38;713.61,528.59;562.63,555.66;489.99,564.20;374.62,598.39;202.28,641.12;64.12,669.60;19.96,676.72" z_order="0">
+    </polygon>
+    <polygon label="gate_far_right" source="manual" occluded="0" points="1422.90,455.90;1917.10,626.90;1915.80,639.70;1378.80,454.60" z_order="0">
+    </polygon>
+    <polygon label="gate_far_center" source="manual" occluded="0" points="1271.95,391.86;1676.50,390.40;1655.10,363.40;1301.86,377.61" z_order="0">
+    </polygon>
+    <polygon label="gate_far_left" source="manual" occluded="0" points="399.70,538.00;571.80,484.90;559.90,489.20;403.30,539.40" z_order="0">
+    </polygon>
+    <polygon label="stop_line_near" source="manual" occluded="0" points="459.86,573.29;1920.00,582.99;1920.00,623.37;408.15,582.99" z_order="0">
+    </polygon>
+    <polygon label="ignore_region" source="manual" occluded="0" points="1111.08,416.55;1164.40,429.48;1301.76,374.53;1335.69,337.37;1324.38,319.59;1288.83,305.05;1262.97,288.89;1253.28,272.73;1219.34,266.27;1170.87,267.88;1153.09,271.11;1166.02,303.43;1164.40,319.59;1191.87,321.21;1238.74,330.90;1271.05,338.98;1296.91,340.60;1295.29,351.91;1264.59,368.07;1212.88,390.69;1161.17,405.24" z_order="0">
+    </polygon>
+    <polygon label="ignore_region" source="manual" occluded="0" points="367.75,534.51;427.54,537.74;474.40,544.21;467.94,557.13;387.14,582.99;291.80,608.84;177.07,636.32;78.50,660.55;4.16,676.71;0.00,619.83;0.00,610.32;130.20,582.99;269.18,563.60;353.20,545.82" z_order="0">
+    </polygon>
+    <polygon label="gate_bottom" source="manual" occluded="0" points="1912.80,906.30;11.30,682.60;24.16,594.18;18.46,475.87;27.02,474.44;32.72,594.18;27.00,676.90;1914.20,893.50" z_order="0">
+    </polygon>
+  </image>
+</annotations>
