@@ -1,26 +1,41 @@
 from __future__ import annotations
 
-from utils.base import LegacyScriptRunner
-from utils.config import PipelineConfig
+from pathlib import Path
+
+import pandas as pd
+
+from utils.base import PipelineStage
+from utils.io_utils import write_json
 
 
-class EventTableMerger(LegacyScriptRunner):
-    def __init__(self, config: PipelineConfig) -> None:
-        super().__init__(config)
-
+class EventTableMerger(PipelineStage):
     def run(self) -> None:
-        self.config.ensure_output_directories()
-        self.run_legacy_script(
-            "merge_event_tables.py",
-            {
-                "EVENTS_ROOT": self.config.merge_events_root,
-                "CLIP_MANIFEST_CSV": self.config.clip_manifest_csv_path,
-                "VIDEO_INVENTORY_CSV": self.config.inventory_csv_path,
-                "VIDEO_TIME_BOUNDS_CSV": self.config.time_bounds_csv_path,
-                "MASTER_EVENTS_CSV": self.config.merge_master_csv,
-                "MASTER_EVENTS_JSON": self.config.merge_master_json,
-                "RECURSIVE": self.config.recursive,
-                "EVENTS_FILENAME": self.config.merge_events_filename,
-                "SKIP_EMPTY_EVENTS": self.config.skip_empty_events,
-            },
-        )
+        event_files = sorted(self.config.merge_events_root.rglob(self.config.merge_events_filename))
+        frames = []
+        per_file_counts = []
+
+        for path in event_files:
+            try:
+                df = pd.read_csv(path)
+            except Exception:
+                continue
+            if df.empty and self.config.skip_empty_events:
+                continue
+            frames.append(df)
+            per_file_counts.append({"path": str(path), "rows": int(len(df))})
+
+        if frames:
+            master = pd.concat(frames, ignore_index=True)
+        else:
+            master = pd.DataFrame([])
+
+        self.config.merge_master_csv.parent.mkdir(parents=True, exist_ok=True)
+        master.to_csv(self.config.merge_master_csv, index=False)
+
+        summary = {
+            "event_files_found": len(event_files),
+            "event_files_used": len(frames),
+            "master_rows": int(len(master)),
+            "per_file_counts": per_file_counts,
+        }
+        write_json(self.config.merge_master_json, summary)
