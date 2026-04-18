@@ -1,153 +1,170 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
+
 from custom_logger import CustomLogger
 
 
 @dataclass
 class PipelineContext:
-    project_root: Path
-    input_path: Path
-    annotations_xml: Path
-    output_root: Path = Path('_output')
+    project_root: Path = Path(".")
+    input_path: Path = Path(".")
+    annotations_xml: Path = Path("annotations.xml")
 
-    run_video_preparation: bool = True
-    run_scene_config_export: bool = True
-    run_tracking: bool = True
-    run_event_extraction: bool = True
-    run_event_merge: bool = True
+    run_video_preparation: bool = False
+    run_scene_config_export: bool = False
+    run_tracking: bool = False
+    run_event_extraction: bool = False
+    run_event_merge: bool = False
 
-    recursive: bool = True
-
-    model_weights: str = 'yolo11s.pt'
-    device: str | int = 'cpu'
-    img_size: int = 1280
-    confidence_threshold: float = 0.70
-    iou_threshold: float = 0.45
-    tracker_config: str = 'bytetrack.yaml'
-    target_classes: list[int] = field(default_factory=lambda: [2, 3, 5, 7])
-    persist_tracks: bool = True
-    write_annotated_video: bool = True
-    annotated_video_codec: str = 'mp4v'
-    write_frame_previews: bool = False
-    frame_preview_every_n: int = 150
-    skip_if_output_exists: bool = True
-    overwrite_existing_tracking: bool = False
-
+    scene_regions_json: Path = Path("_output/scene/scene_regions.json")
     scene_image_name: str | None = None
     scene_round_digits: int = 2
 
-    required_entry_boundary: str = 'boundary_bottom'
-    exit_to_route: dict[str, str] = field(default_factory=lambda: {
-        'boundary_far_left': 'left',
-        'boundary_far_center': 'straight',
-        'boundary_far_right': 'right',
-    })
+    tracking_input_path: Path | None = None
+    tracking_output_root: Path = Path("_output/tracking_outputs")
+    model_weights: str = "yolo11s.pt"
+    device: str | int = "cpu"
+    img_size: int = 1280
+    confidence_threshold: float = 0.70
+    iou_threshold: float = 0.45
+    tracker_config: str = "bytetrack.yaml"
+    target_classes: list[int] | None = None
+    persist_tracks: bool = True
+
+    write_annotated_video: bool = True
+    annotated_video_codec: str = "mp4v"
+    write_frame_previews: bool = False
+    frame_preview_every_n: int = 150
+
+    skip_if_output_exists: bool = True
+    overwrite_existing_tracking: bool = False
+
+    event_tracks_csv: Path | None = None
+    event_output_csv: Path = Path("events.csv")
+    event_debug_json: Path = Path("events_debug.json")
+    required_entry_boundary: str = "boundary_bottom"
+    exit_to_route: dict[str, str] | None = None
     min_track_points: int = 5
     min_track_duration_sec: float = 0.75
     min_crossing_frame_gap: int = 3
     drop_tracks_without_required_entry: bool = True
+
+    merge_events_root: Path | None = None
+    merge_master_csv: Path = Path("_output/event_tables/master_events.csv")
+    merge_master_json: Path = Path("_output/event_tables/master_events_summary.json")
+    merge_events_filename: str = "events.csv"
+    skip_empty_events: bool = True
+
+    inventory_csv_path: Path = Path("data/video_inventory.csv")
+    time_bounds_csv_path: Path = Path("_output/metadata/video_time_bounds.csv")
+    clip_manifest_csv_path: Path = Path("_output/metadata/clip_manifest.csv")
+    scene_frame_manifest_csv_path: Path = Path("_output/metadata/scene_frame_manifest.csv")
+    standardized_video_dir: Path = Path("_output/standardized_videos")
+    preview_dir: Path = Path("_output/metadata/previews")
+    scene_frame_dir: Path = Path("_output/frames_for_scene_setup")
+
+    recursive: bool = True
+
+    run_ocr_time_bounds: bool = True
+    run_video_inventory: bool = True
+    run_standardize_and_split: bool = True
+    run_preview_clips: bool = True
+    run_scene_frame_sampling: bool = True
 
     clip_duration_seconds: int = 1800
     preview_duration_seconds: int = 20
     overwrite_existing_outputs: bool = False
     keep_audio: bool = False
 
-    target_container_suffix: str = '.mp4'
-    target_video_codec: str = 'libx264'
-    target_preset: str = 'medium'
+    target_container_suffix: str = ".mp4"
+    target_video_codec: str = "libx264"
+    target_preset: str = "medium"
     target_crf: int = 18
     target_fps: float = 10.0
     target_width: int | None = None
     target_height: int | None = None
-    pixel_format: str = 'yuv420p'
+    pixel_format: str = "yuv420p"
 
-    scene_frame_sample_ratios: list[float] = field(default_factory=lambda: [0.05, 0.25, 0.50, 0.75, 0.95])
+    dedupe_overlap_tolerance_seconds: float = 1.0
+    min_output_segment_seconds: float = 1.0
+    skip_videos_without_trusted_time_range: bool = True
+    clean_stale_temp_outputs_on_start: bool = True
+    temp_output_suffix: str = ".tmp"
+
+    scene_frame_sample_ratios: list[float] | None = None
     scene_frame_jpeg_quality: int = 95
 
-    @property
-    def metadata_dir(self) -> Path:
-        return self.output_root / 'metadata'
+    crop_x: float = 0.015
+    crop_y: float = 0.020
+    crop_w: float = 0.310
+    crop_h: float = 0.080
 
-    @property
-    def inventory_csv_path(self) -> Path:
-        return self.metadata_dir / 'video_inventory.csv'
+    frame_offsets: list[int] | None = None
+    thresholds: list[int] | None = None
+    ocr_timeout_seconds: float = 1.5
+    tesseract_configs: list[str] | None = None
+    time_alignment_tolerance_seconds: float = 5.0
 
-    @property
-    def time_bounds_csv_path(self) -> Path:
-        return self.metadata_dir / 'video_time_bounds.csv'
+    def __post_init__(self) -> None:
+        self.project_root = Path(self.project_root)
+        self.input_path = Path(self.input_path)
+        self.annotations_xml = Path(self.annotations_xml)
+        self.scene_regions_json = Path(self.scene_regions_json)
+        self.tracking_output_root = Path(self.tracking_output_root)
+        self.inventory_csv_path = Path(self.inventory_csv_path)
+        self.time_bounds_csv_path = Path(self.time_bounds_csv_path)
+        self.clip_manifest_csv_path = Path(self.clip_manifest_csv_path)
+        self.scene_frame_manifest_csv_path = Path(self.scene_frame_manifest_csv_path)
+        self.standardized_video_dir = Path(self.standardized_video_dir)
+        self.preview_dir = Path(self.preview_dir)
+        self.scene_frame_dir = Path(self.scene_frame_dir)
+        self.event_output_csv = Path(self.event_output_csv)
+        self.event_debug_json = Path(self.event_debug_json)
+        self.merge_master_csv = Path(self.merge_master_csv)
+        self.merge_master_json = Path(self.merge_master_json)
 
-    @property
-    def clip_manifest_csv_path(self) -> Path:
-        return self.metadata_dir / 'clip_manifest.csv'
+        if self.tracking_input_path is not None:
+            self.tracking_input_path = Path(self.tracking_input_path)
+        else:
+            self.tracking_input_path = self.standardized_video_dir
 
-    @property
-    def scene_frame_manifest_csv_path(self) -> Path:
-        return self.metadata_dir / 'scene_frame_manifest.csv'
+        if self.event_tracks_csv is not None:
+            self.event_tracks_csv = Path(self.event_tracks_csv)
 
-    @property
-    def standardized_video_dir(self) -> Path:
-        return self.output_root / 'standardized_videos'
+        if self.merge_events_root is not None:
+            self.merge_events_root = Path(self.merge_events_root)
+        else:
+            self.merge_events_root = self.tracking_output_root
 
-    @property
-    def preview_dir(self) -> Path:
-        return self.metadata_dir / 'previews'
+        if self.target_classes is None:
+            self.target_classes = [2, 3, 5, 7]
 
-    @property
-    def scene_frame_dir(self) -> Path:
-        return self.output_root / 'frames_for_scene_setup'
+        if self.exit_to_route is None:
+            self.exit_to_route = {
+                "boundary_far_left": "left",
+                "boundary_far_center": "straight",
+                "boundary_far_right": "right",
+            }
 
-    @property
-    def scene_dir(self) -> Path:
-        return self.output_root / 'scene'
+        if self.scene_frame_sample_ratios is None:
+            self.scene_frame_sample_ratios = [0.05, 0.25, 0.50, 0.75, 0.95]
 
-    @property
-    def scene_regions_json(self) -> Path:
-        return self.scene_dir / 'scene_regions.json'
+        if self.frame_offsets is None:
+            self.frame_offsets = [0, 2, 5, 10]
 
-    @property
-    def tracking_output_root(self) -> Path:
-        return self.output_root / 'tracking_outputs'
+        if self.thresholds is None:
+            self.thresholds = [140, 170, 200, 225]
 
-    @property
-    def merge_events_root(self) -> Path:
-        return self.tracking_output_root
-
-    @property
-    def merge_master_csv(self) -> Path:
-        return self.output_root / 'event_tables' / 'master_events.csv'
-
-    @property
-    def merge_master_json(self) -> Path:
-        return self.output_root / 'event_tables' / 'master_events_summary.json'
-
-    @property
-    def merge_events_filename(self) -> str:
-        return 'events.csv'
-
-    @property
-    def skip_empty_events(self) -> bool:
-        return True
-
-    def ensure_directories(self) -> None:
-        for path in [
-            self.output_root,
-            self.metadata_dir,
-            self.standardized_video_dir,
-            self.preview_dir,
-            self.scene_frame_dir,
-            self.scene_dir,
-            self.tracking_output_root,
-            self.output_root / 'event_tables',
-        ]:
-            path.mkdir(parents=True, exist_ok=True)
+        if self.tesseract_configs is None:
+            self.tesseract_configs = [
+                "--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789:/- APMapm",
+                "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789:/- APMapm",
+            ]
 
 
 class PipelineStage:
-    def __init__(self, config: PipelineContext) -> None:
-        self.config = config
+    def __init__(self, context: PipelineContext) -> None:
+        self.context = context
         self.logger = CustomLogger(self.__class__.__name__)
-
-    def ensure_parent(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
