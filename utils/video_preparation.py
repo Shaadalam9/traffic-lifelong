@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import cv2
+import numpy as np
 import pytesseract
 
 # ============================================================
@@ -480,16 +481,68 @@ def extract_timestamp_from_frame(frame) -> datetime | None:
     return None
 
 
+def decode_image_bytes(image_bytes: bytes):
+    if not image_bytes:
+        return None
+    array = np.frombuffer(image_bytes, dtype=np.uint8)
+    if array.size == 0:
+        return None
+    frame = cv2.imdecode(array, cv2.IMREAD_COLOR)
+    return frame
+
+
+def extract_frame_with_ffmpeg(video_path: Path, timestamp_seconds: float):
+    if not ffmpeg_exists():
+        return None
+
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-err_detect",
+        "ignore_err",
+        "-ss",
+        format_float(timestamp_seconds, 3),
+        "-i",
+        str(video_path),
+        "-frames:v",
+        "1",
+        "-f",
+        "image2pipe",
+        "-vcodec",
+        "mjpeg",
+        "-",
+    ]
+    result = subprocess.run(command, capture_output=True, check=False)
+    if result.returncode != 0:
+        return None
+    return decode_image_bytes(result.stdout)
+
+
 def read_frame(cap: cv2.VideoCapture, frame_index: int):
     cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
     ok, frame = cap.read()
     return frame if ok else None
 
 
-def extract_edge_timestamp(cap: cv2.VideoCapture, frame_count: int, edge: str) -> datetime | None:
+def read_frame_robust(
+    video_path: Path,
+    cap: cv2.VideoCapture,
+    frame_index: int,
+    fps: float,
+):
+    timestamp_seconds = frame_index / fps if fps > 0 else 0.0
+    frame = extract_frame_with_ffmpeg(video_path, timestamp_seconds)
+    if frame is not None:
+        return frame
+    return read_frame(cap, frame_index)
+
+
+def extract_edge_timestamp(video_path: Path, cap: cv2.VideoCapture, frame_count: int, fps: float, edge: str) -> datetime | None:
     for offset in FRAME_OFFSETS:
         frame_index = offset if edge == "start" else max(0, frame_count - 1 - offset)
-        frame = read_frame(cap, frame_index)
+        frame = read_frame_robust(video_path, cap, frame_index, fps)
         if frame is None:
             continue
 
@@ -510,6 +563,9 @@ def extract_video_bounds(video_path: Path) -> dict[str, str]:
         }
 
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+    if fps <= 0:
+        fps = 30.0
     if frame_count <= 0:
         cap.release()
         return {
@@ -519,8 +575,8 @@ def extract_video_bounds(video_path: Path) -> dict[str, str]:
             "timestamp_overlay_visible_auto": "",
         }
 
-    start_dt = extract_edge_timestamp(cap, frame_count, "start")
-    end_dt = extract_edge_timestamp(cap, frame_count, "end")
+    start_dt = extract_edge_timestamp(video_path, cap, frame_count, fps, "start")
+    end_dt = extract_edge_timestamp(video_path, cap, frame_count, fps, "end")
     cap.release()
 
     status = "ok"
@@ -1149,7 +1205,10 @@ def build_clip_rows(
                 "source_path": inventory_row["source_path"],
                 "relative_source_path": inventory_row["relative_source_path"],
                 "standardized_path": path_to_posix(standardized_path.resolve()),
-                "relative_standardized_path": path_to_posix(standardized_path.relative_to(project_root)),
+                "relative_standardized_path": project_relative_or_absolute(
+                    standardized_path,
+                    project_root,
+                ),
                 "preview_path": path_to_posix(preview_path.resolve()),
                 "segment_start_sec": format_float(segment_start_sec, 3),
                 "segment_end_sec": format_float(segment_end_sec, 3),
@@ -1251,6 +1310,15 @@ def materialise_preview_and_clips(clip_rows: list[dict[str, str]]) -> None:
 # ============================================================
 # Scene frame sampling
 # ============================================================
+def project_relative_or_absolute(path: Path, project_root: Path) -> str:
+    resolved_path = path.resolve()
+    resolved_project_root = project_root.resolve()
+    try:
+        return path_to_posix(resolved_path.relative_to(resolved_project_root))
+    except ValueError:
+        return path_to_posix(resolved_path)
+
+
 def sample_frame_at_ratio(video_path: Path, ratio: float):
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -1259,16 +1327,17 @@ def sample_frame_at_ratio(video_path: Path, ratio: float):
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
     duration_seconds = frame_count / fps if fps and frame_count else None
+    if fps <= 0:
+        fps = 30.0
     if frame_count <= 0:
         cap.release()
         return None, None, duration_seconds
 
     ratio = min(max(ratio, 0.0), 1.0)
     frame_index = min(frame_count - 1, max(0, int(round((frame_count - 1) * ratio))))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-    ok, frame = cap.read()
+    frame = read_frame_robust(video_path, cap, frame_index, fps)
     cap.release()
-    if not ok:
+    if frame is None:
         return None, None, duration_seconds
 
     frame_time_seconds = frame_index / fps if fps else None
