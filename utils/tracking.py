@@ -11,6 +11,12 @@ from typing import Any
 import cv2
 from ultralytics import YOLO
 
+try:
+    from tqdm import tqdm
+except Exception:  # pragma: no cover
+    def tqdm(iterable=None, **kwargs):
+        return iterable
+
 # ============================================================
 # Edit only these values
 # ============================================================
@@ -194,6 +200,20 @@ def save_json(path: Path, payload: dict[str, Any]) -> None:
         json.dump(payload, handle, indent=2)
 
 
+def update_tracking_progress(
+    progress_bar: Any,
+    frame_index: int,
+    total_rows_written: int,
+    unique_track_ids: set[int],
+) -> None:
+    if frame_index % 50 != 0:
+        return
+    if not hasattr(progress_bar, "set_postfix"):
+        return
+    valid_track_count = len([track_id for track_id in unique_track_ids if track_id >= 0])
+    progress_bar.set_postfix(rows=total_rows_written, tracks=valid_track_count)
+
+
 def process_video(model: YOLO, video_info: VideoInfo, output_root: Path) -> dict[str, Any]:
     video_dir = output_root / video_info.stem_safe
 
@@ -267,7 +287,18 @@ def process_video(model: YOLO, video_info: VideoInfo, output_root: Path) -> dict
             verbose=False,
         )
 
-        for frame_index, result in enumerate(results_iter):
+        progress_total = video_info.frame_count if video_info.frame_count > 0 else None
+        progress_bar = tqdm(
+            results_iter,
+            total=progress_total,
+            desc=f"Tracking {video_info.path.name}",
+            unit="frame",
+            dynamic_ncols=True,
+            mininterval=1.0,
+            leave=False,
+        )
+
+        for frame_index, result in enumerate(progress_bar):
             total_frames_seen += 1
             frame = result.orig_img
             boxes = result.boxes
@@ -275,6 +306,7 @@ def process_video(model: YOLO, video_info: VideoInfo, output_root: Path) -> dict
             if boxes is None or boxes.xyxy is None or len(boxes) == 0:
                 if writer is not None and frame is not None:
                     writer.write(frame)
+                update_tracking_progress(progress_bar, frame_index, total_rows_written, unique_track_ids)
                 continue
 
             xyxy_list = boxes.xyxy.cpu().numpy().tolist()
@@ -343,6 +375,8 @@ def process_video(model: YOLO, video_info: VideoInfo, output_root: Path) -> dict
             if WRITE_FRAME_PREVIEWS and frame is not None and frame_index % FRAME_PREVIEW_EVERY_N == 0:
                 preview_path = preview_dir / f"frame_{frame_index:06d}.jpg"
                 cv2.imwrite(str(preview_path), frame)
+
+            update_tracking_progress(progress_bar, frame_index, total_rows_written, unique_track_ids)
 
     if writer is not None:
         writer.release()
