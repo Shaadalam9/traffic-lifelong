@@ -33,16 +33,16 @@ CONFIG_PATH = Path("config")
 RUN_EVENT_EXTRACTION = True
 RUN_EVENT_MERGE = True
 RUN_BASIC_STATISTICAL_RESULTS = True
-RUN_PRIVACY_FEATURE_ENRICHMENT = True
-RUN_ENRICHED_PRIVACY_RESULTS = True
-RUN_MANUAL_REVIEW_SAMPLE = True
+RUN_PRIVACY_FEATURE_ENRICHMENT = False
+RUN_ENRICHED_PRIVACY_RESULTS = False
+RUN_MANUAL_REVIEW_SAMPLE = False
 
 # Leave this False for normal analysis runs. Set True only when you want
 # mitigation video variants generated from representative clips.
 RUN_MITIGATION_VIDEO_GENERATION = False
 
 # Colour extraction reads video frames and is slower than size or motion features.
-RUN_COLOUR_EXTRACTION = True
+RUN_COLOUR_EXTRACTION = False
 
 # Mitigation settings
 MAX_MITIGATION_SOURCE_CLIPS = 20

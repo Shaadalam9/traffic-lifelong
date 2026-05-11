@@ -186,19 +186,130 @@ def classify_route(entry_boundary: str, exit_boundary: str) -> str:
         return ""
     return EXIT_TO_ROUTE.get(exit_boundary, "")
 
+def point_to_segment_distance_sq(
+    point: tuple[float, float],
+    seg_start: tuple[float, float],
+    seg_end: tuple[float, float],
+) -> float:
+    px, py = point
+    x1, y1 = seg_start
+    x2, y2 = seg_end
 
-def choose_entry_and_exit(crossings: list[dict[str, Any]]) -> tuple[str, str, list[dict[str, Any]]]:
+    dx = x2 - x1
+    dy = y2 - y1
+    denom = dx * dx + dy * dy
+
+    if denom <= 1e-9:
+        return (px - x1) ** 2 + (py - y1) ** 2
+
+    t = ((px - x1) * dx + (py - y1) * dy) / denom
+    t = max(0.0, min(1.0, t))
+
+    closest_x = x1 + t * dx
+    closest_y = y1 + t * dy
+
+    return (px - closest_x) ** 2 + (py - closest_y) ** 2
+
+
+def mean_distance_to_boundary_sq(
+    points: list[tuple[float, float]],
+    boundary_segments: list[tuple[tuple[float, float], tuple[float, float]]],
+) -> float:
+    if not points or not boundary_segments:
+        return float("inf")
+
+    distances = []
+    for point in points:
+        best = min(
+            point_to_segment_distance_sq(point, seg_start, seg_end)
+            for seg_start, seg_end in boundary_segments
+        )
+        distances.append(best)
+
+    return sum(distances) / len(distances)
+
+
+def choose_entry_and_exit(
+    crossings: list[dict[str, Any]],
+    track_rows: list[dict[str, Any]] | None = None,
+    boundaries: dict[str, list[tuple[tuple[float, float], tuple[float, float]]]] | None = None,
+) -> tuple[str, str, list[dict[str, Any]]]:
     if not crossings:
         return "", "", []
-    entry_boundary = crossings[0]["boundary"]
-    chosen = [crossings[0]]
-    exit_boundary = ""
-    for crossing in crossings[1:]:
-        if crossing["boundary"] in EXIT_TO_ROUTE:
-            exit_boundary = crossing["boundary"]
-            chosen.append(crossing)
+
+    entry_crossing = None
+    entry_index = None
+
+    for index, crossing in enumerate(crossings):
+        if crossing["boundary"] == REQUIRED_ENTRY_BOUNDARY:
+            entry_crossing = crossing
+            entry_index = index
             break
-    return entry_boundary, exit_boundary, chosen
+
+    if entry_crossing is None or entry_index is None:
+        first = crossings[0]
+        return first["boundary"], "", [first]
+
+    exit_crossings = [
+        crossing
+        for crossing in crossings[entry_index + 1:]
+        if crossing["boundary"] in EXIT_TO_ROUTE
+    ]
+
+    # Important:
+    # Do not invent an exit for tracks that never crossed any exit boundary.
+    # Otherwise the event count becomes inflated.
+    if not exit_crossings:
+        return entry_crossing["boundary"], "", [entry_crossing]
+
+    if track_rows is not None and boundaries is not None:
+        tail_rows = track_rows[-min(8, len(track_rows)):]
+        tail_points = [
+            (float(row["center_x"]), float(row["center_y"]))
+            for row in tail_rows
+        ]
+
+        candidate_distances = {}
+        for boundary_name in EXIT_TO_ROUTE:
+            if boundary_name in boundaries:
+                candidate_distances[boundary_name] = mean_distance_to_boundary_sq(
+                    tail_points,
+                    boundaries[boundary_name],
+                )
+
+        if candidate_distances:
+            exit_boundary = min(candidate_distances, key=candidate_distances.get)
+
+            chosen_exit = None
+            for crossing in exit_crossings:
+                if crossing["boundary"] == exit_boundary:
+                    chosen_exit = crossing
+                    break
+
+            if chosen_exit is None:
+                final_row = track_rows[-1]
+                chosen_exit = {
+                    "boundary": exit_boundary,
+                    "frame_index": final_row["frame_index"],
+                    "timestamp_sec": final_row["timestamp_sec"],
+                    "segment_index": len(track_rows) - 1,
+                    "selection_method": "nearest_final_position",
+                }
+
+            return (
+                entry_crossing["boundary"],
+                exit_boundary,
+                [entry_crossing, chosen_exit],
+            )
+
+    # Fallback: use the last crossed exit.
+    exit_crossing = exit_crossings[-1]
+
+    return (
+        entry_crossing["boundary"],
+        exit_crossing["boundary"],
+        [entry_crossing, exit_crossing],
+    )
 
 
 def build_events(
@@ -230,7 +341,11 @@ def build_events(
             debug["per_track"].append({**summary, "status": "rejected_no_crossings"})
             continue
 
-        entry_boundary, exit_boundary, chosen_crossings = choose_entry_and_exit(crossings)
+        entry_boundary, exit_boundary, chosen_crossings = choose_entry_and_exit(
+            crossings,
+            track_rows,
+            boundaries,
+        )
         if DROP_TRACKS_WITHOUT_REQUIRED_ENTRY and entry_boundary != REQUIRED_ENTRY_BOUNDARY:
             debug["tracks_rejected_wrong_entry"] += 1
             debug["per_track"].append(
