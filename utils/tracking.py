@@ -11,11 +11,9 @@ from typing import Any
 import cv2
 from ultralytics import YOLO
 
-try:
-    from tqdm import tqdm
-except Exception:  # pragma: no cover
-    def tqdm(iterable=None, **kwargs):
-        return iterable
+from tqdm import tqdm
+from utils.base import PipelineStage
+
 
 # ============================================================
 # Edit only these values
@@ -443,9 +441,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-from utils.base import PipelineContext, PipelineStage
 
 
 class YoloTrackingPipeline(PipelineStage):

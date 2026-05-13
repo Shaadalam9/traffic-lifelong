@@ -9,6 +9,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+from utils.base import PipelineStage
 
 # Edit these values only
 ANNOTATIONS_XML = "annotations.xml"
@@ -390,9 +391,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-from utils.base import PipelineContext, PipelineStage
 
 
 class SceneConfigBuilder(PipelineStage):

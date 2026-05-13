@@ -5,11 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "kaleido==0.2.1",
     "keyring>=25.7.0",
     "lap>=0.5.13",
     "numpy>=2.4.4",
     "opencv-python>=4.13.0.92",
     "pandas>=3.0.2",
+    "plotly>=6.7.0",
     "pycountry>=24.6.1",
     "pycryptodomex>=3.23.0",
     "pytesseract>=0.3.13",

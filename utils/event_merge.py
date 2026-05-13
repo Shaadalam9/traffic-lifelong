@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from utils.base import PipelineStage
 
 EVENTS_ROOT = "tracking_outputs"
 CLIP_MANIFEST_CSV = "metadata/clip_manifest.csv"
@@ -379,9 +380,6 @@ def merge_events() -> None:
 
 if __name__ == "__main__":
     merge_events()
-
-
-from utils.base import PipelineContext, PipelineStage
 
 
 class EventTableMerger(PipelineStage):

@@ -6,6 +6,9 @@ import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+from utils.base import PipelineStage
+from tqdm import tqdm
+
 
 TRACKS_CSV_PATH = "/Users/alam/Repos/traffic-lifelong/tracking_outputs/live_from_fresno_california_supercar_spotting_traffic_camera_police_scanner_radio_2025_11_23_21_42/tracks.csv"
 SCENE_REGIONS_JSON_PATH = "readme/scene_regions.json"
@@ -185,6 +188,7 @@ def classify_route(entry_boundary: str, exit_boundary: str) -> str:
     if entry_boundary != REQUIRED_ENTRY_BOUNDARY:
         return ""
     return EXIT_TO_ROUTE.get(exit_boundary, "")
+
 
 def point_to_segment_distance_sq(
     point: tuple[float, float],
@@ -481,15 +485,6 @@ if __name__ == "__main__":
     main()
 
 
-from utils.base import PipelineContext, PipelineStage
-
-try:
-    from tqdm import tqdm
-except Exception:  # pragma: no cover
-    def tqdm(iterable=None, **kwargs):
-        return iterable
-
-
 def _list_track_csvs(root: Path, recursive: bool) -> list[Path]:
     if root.is_file():
         return [root] if root.name == "tracks.csv" else []
@@ -500,7 +495,8 @@ def _list_track_csvs(root: Path, recursive: bool) -> list[Path]:
 class EventExtractionPipeline(PipelineStage):
     def run(self) -> None:
         global TRACKS_CSV_PATH, SCENE_REGIONS_JSON_PATH, EVENTS_CSV_PATH, EVENTS_DEBUG_JSON_PATH
-        global REQUIRED_ENTRY_BOUNDARY, EXIT_TO_ROUTE, MIN_TRACK_POINTS, MIN_TRACK_DURATION_SEC, MIN_CROSSING_FRAME_GAP, DROP_TRACKS_WITHOUT_REQUIRED_ENTRY
+        global REQUIRED_ENTRY_BOUNDARY, EXIT_TO_ROUTE, MIN_TRACK_POINTS, MIN_TRACK_DURATION_SEC
+        global MIN_CROSSING_FRAME_GAP, DROP_TRACKS_WITHOUT_REQUIRED_ENTRY
 
         SCENE_REGIONS_JSON_PATH = str(self.context.scene_regions_json)
         REQUIRED_ENTRY_BOUNDARY = self.context.required_entry_boundary

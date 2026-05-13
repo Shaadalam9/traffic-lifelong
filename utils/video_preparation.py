@@ -15,6 +15,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytesseract
+from utils.base import PipelineStage
 
 # ============================================================
 # Edit only these values
@@ -539,7 +540,8 @@ def read_frame_robust(
     return read_frame(cap, frame_index)
 
 
-def extract_edge_timestamp(video_path: Path, cap: cv2.VideoCapture, frame_count: int, fps: float, edge: str) -> datetime | None:
+def extract_edge_timestamp(video_path: Path, cap: cv2.VideoCapture, frame_count: int,
+                           fps: float, edge: str) -> datetime | None:
     for offset in FRAME_OFFSETS:
         frame_index = offset if edge == "start" else max(0, frame_count - 1 - offset)
         frame = read_frame_robust(video_path, cap, frame_index, fps)
@@ -762,7 +764,8 @@ def build_inventory_row(video_path: Path, input_root: Path) -> dict[str, str]:
 # ============================================================
 # Trusted time ranges and duplicate coverage planning
 # ============================================================
-def infer_trusted_video_interval(inventory_row: dict[str, str]) -> tuple[datetime | None, datetime | None, str, datetime | None, datetime | None]:
+def infer_trusted_video_interval(inventory_row: dict[str, str]) -> tuple[datetime | None, datetime | None,
+                                                                         str, datetime | None, datetime | None]:
     duration_seconds = safe_float(inventory_row.get("duration_seconds"))
     effective_start_time, start_source = choose_manual_or_auto_datetime(
         inventory_row,
@@ -780,10 +783,13 @@ def infer_trusted_video_interval(inventory_row: dict[str, str]) -> tuple[datetim
         return effective_start_time, effective_end_time, source_name, effective_start_time, effective_end_time
     if effective_start_time is not None and duration_seconds is not None and duration_seconds > 0:
         source_name = f"{start_source}_plus_duration".strip("_") or "manual_or_ocr_start_plus_duration"
-        return effective_start_time, effective_start_time + timedelta(seconds=duration_seconds), source_name, effective_start_time, effective_end_time
+        return effective_start_time, effective_start_time + timedelta(seconds=duration_seconds),
+    source_name, effective_start_time, effective_end_time
+
     if effective_end_time is not None and duration_seconds is not None and duration_seconds > 0:
         source_name = f"{end_source}_minus_duration".strip("_") or "manual_or_ocr_end_minus_duration"
-        return effective_end_time - timedelta(seconds=duration_seconds), effective_end_time, source_name, effective_start_time, effective_end_time
+        return effective_end_time - timedelta(seconds=duration_seconds), effective_end_time, source_name,
+    effective_start_time, effective_end_time
     return None, None, "insufficient_time_mapping", effective_start_time, effective_end_time
 
 
@@ -1064,7 +1070,8 @@ def run_ffmpeg_to_temp(command_prefix: list[str], final_path: Path) -> tuple[boo
     return True, "ok"
 
 
-def make_preview_clip(source_path: Path, preview_path: Path, start_seconds: float, duration_seconds: float) -> tuple[bool, str]:
+def make_preview_clip(source_path: Path, preview_path: Path, start_seconds: float,
+                      duration_seconds: float) -> tuple[bool, str]:
     if preview_path.exists() and not OVERWRITE_EXISTING_OUTPUTS:
         return True, "existing"
 
@@ -1081,7 +1088,8 @@ def make_preview_clip(source_path: Path, preview_path: Path, start_seconds: floa
     return run_ffmpeg_to_temp(command_prefix, preview_path)
 
 
-def standardize_clip(source_path: Path, output_path: Path, start_seconds: float, duration_seconds: float) -> tuple[bool, str]:
+def standardize_clip(source_path: Path, output_path: Path, start_seconds: float,
+                     duration_seconds: float) -> tuple[bool, str]:
     if output_path.exists() and not OVERWRITE_EXISTING_OUTPUTS:
         return True, "existing"
 
@@ -1595,7 +1603,6 @@ def print_clip_export_summary(clip_rows: list[dict[str, str]], project_root: Pat
             print(f"  {row.get('clip_id', '')}: {row.get('standardization_error', '')}")
 
 
-
 # ============================================================
 # Review inventory helpers
 # ============================================================
@@ -1865,9 +1872,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-from utils.base import PipelineContext, PipelineStage
 
 
 class VideoPreparationPipeline(PipelineStage):
