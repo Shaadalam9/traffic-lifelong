@@ -7,9 +7,6 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-import cv2
-import numpy as np
-from utils.base import PipelineStage
 
 # Edit these values only
 ANNOTATIONS_XML = "annotations.xml"
@@ -233,145 +230,6 @@ def save_scene_config(scene: dict[str, Any], output_path: Path) -> None:
         json.dump(scene, handle, indent=2)
 
 
-# ---------- Crossing helpers for your tracking pipeline ----------
-
-def point_in_polygon(point: Point, polygon: Polygon) -> bool:
-    polygon_array = np.asarray(polygon, dtype=np.float32)
-    return cv2.pointPolygonTest(polygon_array, point, False) >= 0
-
-
-def segment_intersection(p1: Point, p2: Point, q1: Point, q2: Point) -> bool:
-    def orientation(a: Point, b: Point, c: Point) -> float:
-        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
-    def on_segment(a: Point, b: Point, c: Point) -> bool:
-        return (
-            min(a[0], c[0]) - 1e-9 <= b[0] <= max(a[0], c[0]) + 1e-9
-            and min(a[1], c[1]) - 1e-9 <= b[1] <= max(a[1], c[1]) + 1e-9
-        )
-
-    o1 = orientation(p1, p2, q1)
-    o2 = orientation(p1, p2, q2)
-    o3 = orientation(q1, q2, p1)
-    o4 = orientation(q1, q2, p2)
-
-    if (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0):
-        return True
-
-    if abs(o1) <= 1e-9 and on_segment(p1, q1, p2):
-        return True
-    if abs(o2) <= 1e-9 and on_segment(p1, q2, p2):
-        return True
-    if abs(o3) <= 1e-9 and on_segment(q1, p1, q2):
-        return True
-    if abs(o4) <= 1e-9 and on_segment(q1, p2, q2):
-        return True
-
-    return False
-
-
-def track_crosses_boundary(track_points: Polyline, boundary_centerline: Polyline) -> bool:
-    if len(track_points) < 2 or len(boundary_centerline) < 2:
-        return False
-
-    for track_index in range(len(track_points) - 1):
-        p1 = track_points[track_index]
-        p2 = track_points[track_index + 1]
-        for boundary_index in range(len(boundary_centerline) - 1):
-            q1 = boundary_centerline[boundary_index]
-            q2 = boundary_centerline[boundary_index + 1]
-            if segment_intersection(p1, p2, q1, q2):
-                return True
-    return False
-
-
-def first_crossed_boundary(track_points: Polyline, boundaries: dict[str, Polyline]) -> str | None:
-    if len(track_points) < 2:
-        return None
-
-    earliest_hit: tuple[int, str] | None = None
-    for name, centerline in boundaries.items():
-        if len(centerline) < 2:
-            continue
-        for track_index in range(len(track_points) - 1):
-            p1 = track_points[track_index]
-            p2 = track_points[track_index + 1]
-            hit = False
-            for boundary_index in range(len(centerline) - 1):
-                q1 = centerline[boundary_index]
-                q2 = centerline[boundary_index + 1]
-                if segment_intersection(p1, p2, q1, q2):
-                    hit = True
-                    break
-            if hit:
-                if earliest_hit is None or track_index < earliest_hit[0]:
-                    earliest_hit = (track_index, name)
-                break
-    return None if earliest_hit is None else earliest_hit[1]
-
-
-def last_crossed_boundary(track_points: Polyline, boundaries: dict[str, Polyline]) -> str | None:
-    if len(track_points) < 2:
-        return None
-
-    latest_hit: tuple[int, str] | None = None
-    for name, centerline in boundaries.items():
-        if len(centerline) < 2:
-            continue
-        for track_index in range(len(track_points) - 1):
-            p1 = track_points[track_index]
-            p2 = track_points[track_index + 1]
-            hit = False
-            for boundary_index in range(len(centerline) - 1):
-                q1 = centerline[boundary_index]
-                q2 = centerline[boundary_index + 1]
-                if segment_intersection(p1, p2, q1, q2):
-                    hit = True
-                    break
-            if hit:
-                if latest_hit is None or track_index > latest_hit[0]:
-                    latest_hit = (track_index, name)
-    return None if latest_hit is None else latest_hit[1]
-
-
-def classify_route_type(entry_zone: str | None, exit_zone: str | None) -> str:
-    if entry_zone is None or exit_zone is None:
-        return "unknown"
-    if entry_zone == "boundary_bottom":
-        if exit_zone == "boundary_far_left":
-            return "left"
-        if exit_zone == "boundary_far_center":
-            return "straight"
-        if exit_zone == "boundary_far_right":
-            return "right"
-    return "other"
-
-
-def example_usage(scene: dict[str, Any]) -> None:
-    boundaries = {
-        name: [(point[0], point[1]) for point in boundary["centerline"]]
-        for name, boundary in scene["boundaries"].items()
-    }
-
-    # Example track: car enters from bottom and exits right
-    track_points = [
-        (910.0, 1000.0),
-        (960.0, 900.0),
-        (1040.0, 760.0),
-        (1220.0, 560.0),
-        (1490.0, 480.0),
-    ]
-
-    entry_zone = first_crossed_boundary(track_points, boundaries)
-    exit_zone = last_crossed_boundary(track_points, boundaries)
-    route_type = classify_route_type(entry_zone, exit_zone)
-
-    print("Example track result")
-    print("  entry_zone:", entry_zone)
-    print("  exit_zone:", exit_zone)
-    print("  route_type:", route_type)
-
-
 def main() -> None:
     xml_path = Path(ANNOTATIONS_XML).expanduser()
     output_path = Path(OUTPUT_JSON).expanduser()
@@ -385,12 +243,13 @@ def main() -> None:
     print(f"Saved scene config to: {output_path}")
     print("Boundaries found:", ", ".join(scene["boundaries"].keys()))
     print("Region keys:", ", ".join(scene["regions"].keys()))
-    print()
-    example_usage(scene)
 
 
 if __name__ == "__main__":
     main()
+
+
+from utils.base import PipelineContext, PipelineStage
 
 
 class SceneConfigBuilder(PipelineStage):

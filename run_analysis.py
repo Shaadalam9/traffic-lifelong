@@ -208,7 +208,7 @@ def create_context() -> PipelineContext:
         inventory_csv_path=cfg_path("inventory_csv_path", output_root / "metadata" / "video_inventory.csv"),
         time_bounds_csv_path=cfg_path("time_bounds_csv_path", output_root / "metadata" / "video_time_bounds.csv"),
         clip_manifest_csv_path=cfg_path("clip_manifest_csv_path", output_root / "metadata" / "clip_manifest.csv"),
-        scene_frame_manifest_csv_path=cfg_path("scene_frame_manifest_csv_path", output_root / "metadata" / "scene_frame_manifest.csv"),  # noqa: E501
+        scene_frame_manifest_csv_path=cfg_path("scene_frame_manifest_csv_path", output_root / "metadata" / "scene_frame_manifest.csv"),
         standardized_video_dir=cfg_path("standardized_video_dir", output_root / "standardized_videos"),
         preview_dir=cfg_path("preview_dir", output_root / "metadata" / "previews"),
         scene_frame_dir=cfg_path("scene_frame_dir", output_root / "frames_for_scene_setup"),
@@ -517,21 +517,16 @@ def save_plotly_figure(
     save_eps: bool = True,
 ) -> None:
     """
-    Save a Plotly figure as HTML, PNG, and EPS in the provided output_dir.
+    Save a Plotly figure as HTML, PNG, and EPS only.
 
-    HTML is always saved. PNG and EPS are optional. By default, files are
-    saved only in their original analysis plots folder. Set save_final=True
-    only when you also want a copy in <project_root>/figures.
+    No SVG or PDF files are written. HTML is always saved. PNG and EPS are
+    optional. By default, files are saved only in their original analysis
+    plots folder. Set save_final=True only when you also want a copy in
+    <project_root>/figures.
 
-    EPS export can fail with Kaleido on some Linux setups because Plotly
-    converts PDF to EPS internally. When that happens, this function tries
-    safer fallbacks:
-      1. write PDF and convert it with pdftops, if pdftops is installed;
-      2. create a raster EPS from the PNG using Pillow.
-
-    The fallback EPS is still suitable for LaTeX workflows that require an
-    .eps file, although the Pillow fallback is raster based rather than a
-    fully vector EPS.
+    EPS export is attempted directly with Plotly first. If direct EPS export
+    fails, a raster EPS is created from the PNG using Pillow. This keeps the
+    saved outputs limited to .html, .png, and .eps.
     """
     if output_dir is None:
         try:
@@ -557,10 +552,13 @@ def save_plotly_figure(
     png_path = output_dir / f"{filename}.png"
     eps_path = output_dir / f"{filename}.eps"
 
+    png_available = png_path.exists()
+
     if save_png:
         try:
             logger.info(f"Saving png file for {filename}.")
             fig.write_image(str(png_path), width=width, height=height, scale=scale)
+            png_available = True
             if save_final and output_final is not None:
                 shutil.copy(str(png_path), str(output_final / f"{filename}.png"))
         except Exception as exc:
@@ -578,31 +576,13 @@ def save_plotly_figure(
     except Exception as exc:
         logger.warning(f"Direct EPS export failed for {filename}: {exc}")
 
-    pdf_path = output_dir / f"{filename}.pdf"
     try:
-        pdftops_path = shutil.which("pdftops")
-        if pdftops_path is None:
-            raise FileNotFoundError("pdftops was not found")
-
-        logger.info(f"Trying PDF to EPS fallback for {filename} using pdftops.")
-        fig.write_image(str(pdf_path), width=width, height=height)
-        subprocess.run(
-            [pdftops_path, "-eps", str(pdf_path), str(eps_path)],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        if save_final and output_final is not None:
-            shutil.copy(str(eps_path), str(output_final / f"{filename}.eps"))
-        return
-    except Exception as exc:
-        logger.warning(f"PDF to EPS fallback failed for {filename}: {exc}")
-
-    try:
-        if not png_path.exists():
+        if not png_available:
             logger.info(f"Creating PNG for raster EPS fallback for {filename}.")
             fig.write_image(str(png_path), width=width, height=height, scale=scale)
+            png_available = True
+            if save_final and output_final is not None:
+                shutil.copy(str(png_path), str(output_final / f"{filename}.png"))
 
         logger.info(f"Trying raster PNG to EPS fallback for {filename} using Pillow.")
         from PIL import Image
@@ -660,6 +640,25 @@ def human_readable_text(value: Any) -> str:
     return " ".join(words)
 
 
+def signature_level_tick_label(value: Any) -> str:
+    """Short multiline labels for signature level plots.
+
+    Plotly centres rotated tick labels on the tick position, which makes the
+    label end point sit near the middle of the category. These compact labels
+    are designed to stay horizontal and remain readable in ACM style figures.
+    """
+    text = str(value).strip()
+    labels = {
+        "baseline": "Baseline",
+        "Baseline": "Baseline",
+        "size_motion": "Size +<br>motion",
+        "Size and motion": "Size +<br>motion",
+        "size_motion_colour": "Size + motion<br>+ colour",
+        "Size, motion and colour": "Size + motion<br>+ colour",
+    }
+    return labels.get(text, human_readable_text(text))
+
+
 def clean_axis_label(column: str) -> str:
     return human_readable_text(column)
 
@@ -667,7 +666,13 @@ def clean_axis_label(column: str) -> str:
 def make_labels_human_readable(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     readable = frame.copy()
     for column in columns:
-        if column in readable.columns and not pd.api.types.is_numeric_dtype(readable[column]):
+        if column not in readable.columns:
+            continue
+        if pd.api.types.is_numeric_dtype(readable[column]):
+            continue
+        if column == "signature_level":
+            readable[column] = readable[column].map(signature_level_tick_label)
+        else:
             readable[column] = readable[column].map(human_readable_text)
     return readable
 
@@ -713,11 +718,15 @@ def plot_bar(frame: pd.DataFrame, x_col: str, y_col: str, path: Path, title: str
         y=y_col,
         labels={x_col: clean_axis_label(x_col), y_col: clean_axis_label(y_col)},
     )
-    apply_common_plot_layout(
-        fig,
-        x_tickangle=-rotate if rotate else 0,
-        bottom_margin=120 if rotate else 70,
-    )
+    if x_col == "signature_level":
+        apply_common_plot_layout(fig, x_tickangle=0, bottom_margin=95)
+        fig.update_xaxes(tickangle=0)
+    else:
+        apply_common_plot_layout(
+            fig,
+            x_tickangle=-rotate if rotate else 0,
+            bottom_margin=120 if rotate else 70,
+        )
     save_plotly_figure(fig, path.stem, output_dir=path.parent)
 
 
@@ -887,17 +896,12 @@ def run_basic_statistical_results(context: PipelineContext) -> dict[str, Any]:
     class_counts = value_counts_table(df, "class_name") if "class_name" in df.columns else pd.DataFrame()
     events_by_hour = df.dropna(subset=["hour"]).groupby("hour").size().reset_index(name="count")
     events_by_date = df[df["date"] != ""].groupby("date").size().reset_index(name="count")
-    route_by_hour = pd.crosstab(df["hour"],
-                                df["route_type"]).reset_index() if "route_type" in df.columns else pd.DataFrame()
-    route_by_class = pd.crosstab(df["route_type"], df["class_name"]
-                                 ) if {"route_type", "class_name"}.issubset(df.columns) else pd.DataFrame()
+    route_by_hour = pd.crosstab(df["hour"], df["route_type"]).reset_index() if "route_type" in df.columns else pd.DataFrame()
+    route_by_class = pd.crosstab(df["route_type"], df["class_name"]) if {"route_type", "class_name"}.issubset(df.columns) else pd.DataFrame()
 
-    duration_stats_by_route = grouped_numeric_summary(df, "route_type", "duration_sec"
-                                                      ) if "duration_sec" in df.columns else pd.DataFrame()
-    confidence_stats_by_route = grouped_numeric_summary(df, "route_type", "mean_confidence"
-                                                        ) if "mean_confidence" in df.columns else pd.DataFrame()
-    confidence_stats_by_class = grouped_numeric_summary(df, "class_name", "mean_confidence"
-                                                        ) if "mean_confidence" in df.columns else pd.DataFrame()
+    duration_stats_by_route = grouped_numeric_summary(df, "route_type", "duration_sec") if "duration_sec" in df.columns else pd.DataFrame()
+    confidence_stats_by_route = grouped_numeric_summary(df, "route_type", "mean_confidence") if "mean_confidence" in df.columns else pd.DataFrame()
+    confidence_stats_by_class = grouped_numeric_summary(df, "class_name", "mean_confidence") if "mean_confidence" in df.columns else pd.DataFrame()
 
     baseline_cols = ["class_name", "route_type", "half_hour_label"]
     baseline_counts = signature_counts(df, "baseline", baseline_cols)
@@ -908,8 +912,7 @@ def run_basic_statistical_results(context: PipelineContext) -> dict[str, Any]:
         .agg(signature_count=("route_type", "size"), distinct_days=("date", "nunique"))
         .reset_index()
     )
-    recurrence = recurrence[recurrence["distinct_days"] >= 2].sort_values(["distinct_days", "signature_count"],
-                                                                          ascending=[False, False])
+    recurrence = recurrence[recurrence["distinct_days"] >= 2].sort_values(["distinct_days", "signature_count"], ascending=[False, False])
     recurrence["signature"] = recurrence[baseline_cols].astype(str).agg(" | ".join, axis=1)
 
     write_csv(tables_dir / "route_counts.csv", route_counts)
@@ -917,7 +920,7 @@ def run_basic_statistical_results(context: PipelineContext) -> dict[str, Any]:
     write_csv(tables_dir / "events_by_hour.csv", events_by_hour)
     write_csv(tables_dir / "events_by_date.csv", events_by_date)
     write_csv(tables_dir / "route_by_hour.csv", route_by_hour)
-    write_csv(tables_dir / "route_by_class.csv", route_by_class.reset_index() if not route_by_class.empty else route_by_class)  # noqa: E501
+    write_csv(tables_dir / "route_by_class.csv", route_by_class.reset_index() if not route_by_class.empty else route_by_class)
     write_csv(tables_dir / "duration_statistics_by_route.csv", duration_stats_by_route)
     write_csv(tables_dir / "confidence_statistics_by_route.csv", confidence_stats_by_route)
     write_csv(tables_dir / "confidence_statistics_by_class.csv", confidence_stats_by_class)
@@ -926,21 +929,16 @@ def run_basic_statistical_results(context: PipelineContext) -> dict[str, Any]:
     write_csv(tables_dir / "recurrence_candidate_signatures.csv", recurrence)
 
     if "duration_sec" in df.columns:
-        write_csv(tables_dir / "top_long_duration_events.csv",
-                  df.sort_values("duration_sec", ascending=False).head(100))
+        write_csv(tables_dir / "top_long_duration_events.csv", df.sort_values("duration_sec", ascending=False).head(100))
     if "mean_confidence" in df.columns:
-        write_csv(tables_dir / "low_confidence_events.csv",
-                  df.sort_values("mean_confidence", ascending=True).head(100))
+        write_csv(tables_dir / "low_confidence_events.csv", df.sort_values("mean_confidence", ascending=True).head(100))
 
     plot_bar(route_counts, "route_type", "count", plots_dir / "route_counts.png", "Route counts")
-    plot_bar(class_counts.head(TOP_N), "class_name", "count", plots_dir / "class_counts_top.png", "Class counts",
-             rotate=45)
+    plot_bar(class_counts.head(TOP_N), "class_name", "count", plots_dir / "class_counts_top.png", "Class counts", rotate=45)
     plot_line(events_by_hour, "hour", "count", plots_dir / "events_by_hour.png", "Events by hour")
     plot_bar(events_by_date, "date", "count", plots_dir / "events_by_date.png", "Events by date", rotate=45)
-    plot_box_by_group(df, "route_type", "duration_sec", plots_dir / "duration_by_route_boxplot.png",
-                      "Duration by route")
-    plot_bar(baseline_counts.head(TOP_N), "signature",
-             "signature_count", plots_dir / "top_confusable_signatures.png", "Top baseline signatures", rotate=80)
+    plot_box_by_group(df, "route_type", "duration_sec", plots_dir / "duration_by_route_boxplot.png", "Duration by route")
+    plot_bar(baseline_counts.head(TOP_N), "signature", "signature_count", plots_dir / "top_confusable_signatures.png", "Top baseline signatures", rotate=80)
 
     summary = {
         "master_events_csv": str(master_csv),
@@ -1027,13 +1025,12 @@ def aggregate_tracks_for_clip(tracks: pd.DataFrame) -> pd.DataFrame:
     for track_id, track_rows in tracks.groupby("track_id", sort=False):
         track_rows = track_rows.sort_values("frame_index")
         sample = choose_sample_row(track_rows)
-        duration = safe_float(track_rows["timestamp_sec"].iloc[-1]) - safe_float(
-            track_rows["timestamp_sec"].iloc[0]) if "timestamp_sec" in track_rows else 0.0
+        duration = safe_float(track_rows["timestamp_sec"].iloc[-1]) - safe_float(track_rows["timestamp_sec"].iloc[0]) if "timestamp_sec" in track_rows else 0.0
         duration = max(0.0, duration)
         length_px = path_length_px(track_rows)
         mean_width = float(track_rows["width"].mean()) if "width" in track_rows else math.nan
         mean_height = float(track_rows["height"].mean()) if "height" in track_rows else math.nan
-        mean_area = mean_width * mean_height if not math.isnan(mean_width) and not math.isnan(mean_height) else math.nan  # noqa: E501
+        mean_area = mean_width * mean_height if not math.isnan(mean_width) and not math.isnan(mean_height) else math.nan
         aspect = mean_width / mean_height if mean_height and not math.isnan(mean_height) else math.nan
         rows.append({
             "track_id": int(track_id),
@@ -1125,8 +1122,7 @@ def extract_colour_for_row(video_path: Path, row: pd.Series) -> str:
     return coarse_colour_from_crop(frame[y1:y2, x1:x2])
 
 
-def add_quantile_bucket(df: pd.DataFrame, source_col: str, bucket_col: str,
-                        quantiles: list[float], labels: list[str]) -> None:
+def add_quantile_bucket(df: pd.DataFrame, source_col: str, bucket_col: str, quantiles: list[float], labels: list[str]) -> None:
     values = pd.to_numeric(df[source_col], errors="coerce")
     clean = values.dropna()
     if clean.empty:
@@ -1248,17 +1244,12 @@ def enrich_privacy_features(context: PipelineContext) -> Path:
         quantiles=SPEED_BUCKET_QUANTILES,
         labels=["speed_slow", "speed_medium", "speed_fast", "speed_very_fast"],
     )
-    enriched["duration_bucket"] = enriched["duration_sec"].map(duration_bucket) if "duration_sec" in enriched.columns else "unknown_duration"  # noqa: E501
+    enriched["duration_bucket"] = enriched["duration_sec"].map(duration_bucket) if "duration_sec" in enriched.columns else "unknown_duration"
 
     # Signature columns used by the enriched analysis.
-    enriched["signature_baseline"] = enriched[["class_name", "route_type",
-                                               "half_hour_label"]].astype(str).agg(" | ".join, axis=1)
-    enriched["signature_size_motion"] = enriched[["class_name", "route_type",
-                                                  "half_hour_label", "size_bucket", "speed_bucket",
-                                                  "duration_bucket"]].astype(str).agg(" | ".join, axis=1)
-    enriched["signature_size_motion_colour"] = enriched[["class_name", "route_type", "half_hour_label",
-                                                         "size_bucket", "speed_bucket", "duration_bucket",
-                                                         "coarse_colour"]].astype(str).agg(" | ".join, axis=1)
+    enriched["signature_baseline"] = enriched[["class_name", "route_type", "half_hour_label"]].astype(str).agg(" | ".join, axis=1)
+    enriched["signature_size_motion"] = enriched[["class_name", "route_type", "half_hour_label", "size_bucket", "speed_bucket", "duration_bucket"]].astype(str).agg(" | ".join, axis=1)
+    enriched["signature_size_motion_colour"] = enriched[["class_name", "route_type", "half_hour_label", "size_bucket", "speed_bucket", "duration_bucket", "coarse_colour"]].astype(str).agg(" | ".join, axis=1)
 
     enriched.to_csv(enriched_csv, index=False)
 
@@ -1297,8 +1288,7 @@ def prepare_enriched_events(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
     df = add_time_columns(df)
     for column in [
-        "class_name", "route_type", "half_hour_label", "size_bucket",
-        "speed_bucket", "duration_bucket", "coarse_colour",
+        "class_name", "route_type", "half_hour_label", "size_bucket", "speed_bucket", "duration_bucket", "coarse_colour",
     ]:
         if column not in df.columns:
             df[column] = "unknown"
@@ -1347,10 +1337,8 @@ def run_enriched_privacy_results(context: PipelineContext, enriched_csv: Path | 
 
     signature_levels = {
         "baseline": ["class_name", "route_type", "half_hour_label"],
-        "size_motion": ["class_name", "route_type", "half_hour_label", "size_bucket",
-                        "speed_bucket", "duration_bucket"],
-        "size_motion_colour": ["class_name", "route_type", "half_hour_label", "size_bucket",
-                               "speed_bucket", "duration_bucket", "coarse_colour"],
+        "size_motion": ["class_name", "route_type", "half_hour_label", "size_bucket", "speed_bucket", "duration_bucket"],
+        "size_motion_colour": ["class_name", "route_type", "half_hour_label", "size_bucket", "speed_bucket", "duration_bucket", "coarse_colour"],
     }
 
     summaries: list[dict[str, Any]] = []
@@ -1385,8 +1373,7 @@ def run_enriched_privacy_results(context: PipelineContext, enriched_csv: Path | 
         )
 
     summary_table = pd.DataFrame(summaries)
-    summary_table["rare_recurrence_candidate_signatures"] = summary_table["signature_level"].map(
-        rare_recurrence_by_level).fillna(0).astype(int)
+    summary_table["rare_recurrence_candidate_signatures"] = summary_table["signature_level"].map(rare_recurrence_by_level).fillna(0).astype(int)
     write_csv(tables_dir / "signature_summary_comparison.csv", summary_table)
     write_csv(tables_dir / "all_signature_counts.csv", pd.concat(all_counts, ignore_index=True))
     plot_signature_level_comparison(summary_table, plots_dir)
@@ -1394,10 +1381,8 @@ def run_enriched_privacy_results(context: PipelineContext, enriched_csv: Path | 
     # Distinctive events under strongest signature.
     strong_counts = signature_counts(df.copy(), "size_motion_colour", signature_levels["size_motion_colour"])
     count_lookup = strong_counts.set_index("signature")["signature_count"].to_dict()
-    df["size_motion_colour_signature_count"] = df["signature_size_motion_colour"].map(
-        count_lookup).fillna(0).astype(int)
-    distinctive = df.sort_values(["size_motion_colour_signature_count",
-                                  "mean_confidence", "duration_sec"], ascending=[True, False, False])
+    df["size_motion_colour_signature_count"] = df["signature_size_motion_colour"].map(count_lookup).fillna(0).astype(int)
+    distinctive = df.sort_values(["size_motion_colour_signature_count", "mean_confidence", "duration_sec"], ascending=[True, False, False])
     write_csv(tables_dir / "top_distinctive_events_for_manual_review.csv", distinctive.head(200))
 
     summary = {
@@ -1416,7 +1401,7 @@ def run_enriched_privacy_results(context: PipelineContext, enriched_csv: Path | 
         "percent_events_in_low_confusability_signatures",
         plots_dir / "low_confusability_percent_by_signature_level.png",
         "Low confusability event percentage by signature level",
-        rotate=20,
+        rotate=0,
     )
 
     print("Enriched privacy results:")
@@ -1477,17 +1462,14 @@ def regenerate_existing_plot_exports(context: PipelineContext) -> None:
     confusability = read_csv_if_exists(basic_tables_dir / "confusability_signatures.csv")
 
     plot_bar(route_counts, "route_type", "count", basic_plots_dir / "route_counts.png", "Route counts")
-    plot_bar(class_counts.head(TOP_N), "class_name", "count", basic_plots_dir / "class_counts_top.png",
-             "Class counts", rotate=45)
+    plot_bar(class_counts.head(TOP_N), "class_name", "count", basic_plots_dir / "class_counts_top.png", "Class counts", rotate=45)
     plot_line(events_by_hour, "hour", "count", basic_plots_dir / "events_by_hour.png", "Events by hour")
     plot_bar(events_by_date, "date", "count", basic_plots_dir / "events_by_date.png", "Events by date", rotate=45)
-    plot_bar(top_confusable.head(TOP_N), "signature", "signature_count", basic_plots_dir / "top_confusable_signatures.png",  # noqa: E501
-             "Top baseline signatures", rotate=80)
-    plot_histogram(confusability, "signature_count", basic_plots_dir / "confusability_distribution.png",
-                   "Confusability distribution", nbins=50)
+    plot_bar(top_confusable.head(TOP_N), "signature", "signature_count", basic_plots_dir / "top_confusable_signatures.png", "Top baseline signatures", rotate=80)
+    plot_histogram(confusability, "signature_count", basic_plots_dir / "confusability_distribution.png", "Confusability distribution", nbins=50)
 
     summary_table = read_csv_if_exists(enriched_tables_dir / "signature_summary_comparison.csv")
-    summary_table = add_rare_recurrence_counts_from_summary(summary_table, enriched_root / "enriched_summary_statistics.json")  # noqa: E501
+    summary_table = add_rare_recurrence_counts_from_summary(summary_table, enriched_root / "enriched_summary_statistics.json")
     if not summary_table.empty:
         write_csv(enriched_tables_dir / "signature_summary_comparison.csv", summary_table)
         plot_bar(
@@ -1550,11 +1532,8 @@ def sample_manual_review_events(context: PipelineContext) -> Path:
     for col in ["signature_baseline", "signature_size_motion", "signature_size_motion_colour"]:
         if col not in df.columns:
             df[col] = "unknown"
-    df["baseline_signature_count"] = df["signature_baseline"].map(
-        df["signature_baseline"].value_counts()).fillna(0).astype(int)
-
-    df["size_motion_colour_signature_count"] = df["signature_size_motion_colour"].map(
-        df["signature_size_motion_colour"].value_counts()).fillna(0).astype(int)
+    df["baseline_signature_count"] = df["signature_baseline"].map(df["signature_baseline"].value_counts()).fillna(0).astype(int)
+    df["size_motion_colour_signature_count"] = df["signature_size_motion_colour"].map(df["signature_size_motion_colour"].value_counts()).fillna(0).astype(int)
 
     samples = [
         select_sample(
@@ -1583,7 +1562,7 @@ def sample_manual_review_events(context: PipelineContext) -> Path:
         ),
     ]
 
-    sample = pd.concat([part for part in samples if part is not None and not part.empty], ignore_index=True) if samples else pd.DataFrame()  # noqa: E501
+    sample = pd.concat([part for part in samples if part is not None and not part.empty], ignore_index=True) if samples else pd.DataFrame()
     preferred_columns = [
         "review_group", "source_events_file", "video_name", "video_id", "clip_id", "track_id",
         "class_name", "route_type", "wallclock_start", "wallclock_end", "duration_sec",
@@ -1595,7 +1574,7 @@ def sample_manual_review_events(context: PipelineContext) -> Path:
     if columns:
         sample = sample[columns]
 
-    output_path = analysis_root_from_context(context) / "enriched_privacy_results" / "tables" / "manual_review_sample.csv"  # noqa: E501
+    output_path = analysis_root_from_context(context) / "enriched_privacy_results" / "tables" / "manual_review_sample.csv"
     write_csv(output_path, sample)
     print("Manual review sample:")
     print(f"  Rows: {len(sample)}")

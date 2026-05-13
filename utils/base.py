@@ -97,15 +97,12 @@ class PipelineContext:
     scene_frame_sample_ratios: list[float]
     scene_frame_jpeg_quality: int
 
+    # Used by mitigation video generation to mask the visible timestamp/overlay area.
     crop_x: float
     crop_y: float
     crop_w: float
     crop_h: float
 
-    frame_offsets: list[int]
-    thresholds: list[int]
-    ocr_timeout_seconds: float
-    tesseract_configs: list[str]
     time_alignment_tolerance_seconds: float
 
     def _resolve_path(self, value: Path | str) -> Path:

@@ -14,8 +14,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pytesseract
-from utils.base import PipelineStage
 
 # ============================================================
 # Edit only these values
@@ -69,11 +67,7 @@ TEMP_OUTPUT_SUFFIX = ".tmp"
 SCENE_FRAME_SAMPLE_RATIOS = [0.05, 0.25, 0.50, 0.75, 0.95]
 SCENE_FRAME_JPEG_QUALITY = 95
 
-# Timestamp area in the top left corner
-CROP_X = 0.015
-CROP_Y = 0.020
-CROP_W = 0.310
-CROP_H = 0.080
+# OCR extraction has been removed. Time handling now uses existing/manual checked times.
 
 VIDEO_EXTENSIONS = {
     ".mp4", ".mov", ".avi", ".mkv", ".m4v", ".webm", ".mpeg", ".mpg",
@@ -82,13 +76,6 @@ VIDEO_EXTENSIONS = {
     ".hevc",
 }
 
-FRAME_OFFSETS = [0, 2, 5, 10]
-THRESHOLDS = [140, 170, 200, 225]
-OCR_TIMEOUT_SECONDS = 1.5
-TESSERACT_CONFIGS = [
-    "--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789:/- APMapm",
-    "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789:/- APMapm",
-]
 TIME_ALIGNMENT_TOLERANCE_SECONDS = 5.0
 
 
@@ -340,259 +327,20 @@ def make_video_id(video_path: Path, input_root: Path) -> str:
 
 
 # ============================================================
-# OCR for burned in timestamp
+# Time bounds placeholder
 # ============================================================
-def normalise_ocr_text(text: str) -> str:
-    cleaned = text.strip().replace("\n", " ").replace("\r", " ")
-    cleaned = cleaned.replace("—", "-").replace("–", "-").replace("/", "-")
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    cleaned = cleaned.translate(str.maketrans({
-        "O": "0",
-        "o": "0",
-        "Q": "0",
-        "D": "0",
-        "I": "1",
-        "l": "1",
-        "|": "1",
-        ",": ":",
-        ";": ":",
-    }))
-    cleaned = re.sub(r"(\d{1,2}:\d{2}:\d{2})(\d{1,2}-\d{1,2}-\d{2,4})", r"\1 \2", cleaned)
-    cleaned = re.sub(r"[^0-9:\- APMapm]", " ", cleaned)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned
-
-
-def parse_datetime_from_pattern(cleaned_text: str) -> datetime | None:
-    patterns = [
-        r"(?P<time>\d{1,2}:\d{2}:\d{2})\s+(?P<date>\d{1,2}-\d{1,2}-\d{4})(?:\s*(?P<ampm>AM|PM|am|pm))?",
-        r"(?P<date>\d{1,2}-\d{1,2}-\d{4})\s+(?P<time>\d{1,2}:\d{2}:\d{2})(?:\s*(?P<ampm>AM|PM|am|pm))?",
-    ]
-
-    for pattern in patterns:
-        match = re.search(pattern, cleaned_text)
-        if match is None:
-            continue
-
-        date_part = match.group("date")
-        time_part = match.group("time")
-        ampm = match.groupdict().get("ampm")
-
-        month, day, year = date_part.split("-")
-        assembled = f"{month.zfill(2)}-{day.zfill(2)}-{year} {time_part}"
-
-        formats = ["%m-%d-%Y %H:%M:%S", "%m-%d-%Y %I:%M:%S"]
-        if ampm:
-            assembled = f"{assembled} {ampm.upper()}"
-            formats = ["%m-%d-%Y %I:%M:%S %p"]
-
-        for fmt in formats:
-            try:
-                parsed = datetime.strptime(assembled, fmt)
-            except ValueError:
-                continue
-            if 2000 <= parsed.year <= 2099:
-                return parsed
-    return None
-
-
-def parse_datetime_from_digits(cleaned_text: str) -> datetime | None:
-    digits = re.sub(r"\D", "", cleaned_text)
-    if len(digits) < 14:
-        return None
-
-    seen = set()
-    for index in range(len(digits) - 13):
-        token = digits[index:index + 14]
-        if token in seen:
-            continue
-        seen.add(token)
-
-        month = int(token[0:2])
-        day = int(token[2:4])
-        year = int(token[4:8])
-        hour = int(token[8:10])
-        minute = int(token[10:12])
-        second = int(token[12:14])
-
-        if not (1 <= month <= 12 and 1 <= day <= 31):
-            continue
-        if not (2000 <= year <= 2099):
-            continue
-        if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
-            continue
-
-        try:
-            return datetime(year, month, day, hour, minute, second)
-        except ValueError:
-            continue
-    return None
-
-
-def parse_overlay_datetime(raw_text: str) -> datetime | None:
-    cleaned = normalise_ocr_text(raw_text)
-    parsed = parse_datetime_from_pattern(cleaned)
-    if parsed is not None:
-        return parsed
-    return parse_datetime_from_digits(cleaned)
-
-
-def crop_overlay(frame):
-    height, width = frame.shape[:2]
-    x1 = max(0, int(round(width * CROP_X)))
-    y1 = max(0, int(round(height * CROP_Y)))
-    x2 = min(width, int(round(width * (CROP_X + CROP_W))))
-    y2 = min(height, int(round(height * (CROP_Y + CROP_H))))
-
-    if x2 <= x1 or y2 <= y1:
-        return frame.copy()
-    return frame[y1:y2, x1:x2].copy()
-
-
-def preprocess_crop(crop):
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    enlarged = cv2.resize(gray, None, fx=3.0, fy=3.0, interpolation=cv2.INTER_CUBIC)
-    enlarged = cv2.GaussianBlur(enlarged, (3, 3), 0)
-
-    outputs = [enlarged]
-    for threshold in THRESHOLDS:
-        binary = cv2.threshold(enlarged, threshold, 255, cv2.THRESH_BINARY)[1]
-        padded = cv2.copyMakeBorder(binary, 10, 10, 10, 10, cv2.BORDER_CONSTANT, value=255)
-        outputs.append(padded)
-    return outputs
-
-
-def extract_timestamp_from_frame(frame) -> datetime | None:
-    crop = crop_overlay(frame)
-
-    for processed in preprocess_crop(crop):
-        for tesseract_cfg in TESSERACT_CONFIGS:
-            try:
-                raw_text = pytesseract.image_to_string(
-                    processed,
-                    config=tesseract_cfg,
-                    timeout=OCR_TIMEOUT_SECONDS,
-                )
-            except Exception:
-                continue
-
-            parsed = parse_overlay_datetime(raw_text)
-            if parsed is not None:
-                return parsed
-    return None
-
-
-def decode_image_bytes(image_bytes: bytes):
-    if not image_bytes:
-        return None
-    array = np.frombuffer(image_bytes, dtype=np.uint8)
-    if array.size == 0:
-        return None
-    frame = cv2.imdecode(array, cv2.IMREAD_COLOR)
-    return frame
-
-
-def extract_frame_with_ffmpeg(video_path: Path, timestamp_seconds: float):
-    if not ffmpeg_exists():
-        return None
-
-    command = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-err_detect",
-        "ignore_err",
-        "-ss",
-        format_float(timestamp_seconds, 3),
-        "-i",
-        str(video_path),
-        "-frames:v",
-        "1",
-        "-f",
-        "image2pipe",
-        "-vcodec",
-        "mjpeg",
-        "-",
-    ]
-    result = subprocess.run(command, capture_output=True, check=False)
-    if result.returncode != 0:
-        return None
-    return decode_image_bytes(result.stdout)
-
-
-def read_frame(cap: cv2.VideoCapture, frame_index: int):
-    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-    ok, frame = cap.read()
-    return frame if ok else None
-
-
-def read_frame_robust(
-    video_path: Path,
-    cap: cv2.VideoCapture,
-    frame_index: int,
-    fps: float,
-):
-    timestamp_seconds = frame_index / fps if fps > 0 else 0.0
-    frame = extract_frame_with_ffmpeg(video_path, timestamp_seconds)
-    if frame is not None:
-        return frame
-    return read_frame(cap, frame_index)
-
-
-def extract_edge_timestamp(video_path: Path, cap: cv2.VideoCapture, frame_count: int,
-                           fps: float, edge: str) -> datetime | None:
-    for offset in FRAME_OFFSETS:
-        frame_index = offset if edge == "start" else max(0, frame_count - 1 - offset)
-        frame = read_frame_robust(video_path, cap, frame_index, fps)
-        if frame is None:
-            continue
-
-        parsed = extract_timestamp_from_frame(frame)
-        if parsed is not None:
-            return parsed
-    return None
-
-
 def extract_video_bounds(video_path: Path) -> dict[str, str]:
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        return {
-            "ocr_start_time": "",
-            "ocr_end_time": "",
-            "ocr_status": "video_open_failed",
-            "timestamp_overlay_visible_auto": "",
-        }
+    """Return empty OCR fields without reading frames.
 
-    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
-    if fps <= 0:
-        fps = 30.0
-    if frame_count <= 0:
-        cap.release()
-        return {
-            "ocr_start_time": "",
-            "ocr_end_time": "",
-            "ocr_status": "empty_video",
-            "timestamp_overlay_visible_auto": "",
-        }
-
-    start_dt = extract_edge_timestamp(video_path, cap, frame_count, fps, "start")
-    end_dt = extract_edge_timestamp(video_path, cap, frame_count, fps, "end")
-    cap.release()
-
-    status = "ok"
-    if start_dt is None or end_dt is None:
-        status = "needs_review"
-    elif end_dt < start_dt:
-        status = "needs_review"
-
-    overlay_visible = start_dt is not None or end_dt is not None
+    OCR was removed from the cleaned pipeline. Existing/manual checked times
+    in the inventory remain the source for effective and trusted intervals.
+    Keeping this function preserves the inventory schema and downstream outputs.
+    """
     return {
-        "ocr_start_time": format_datetime(start_dt),
-        "ocr_end_time": format_datetime(end_dt),
-        "ocr_status": status,
-        "timestamp_overlay_visible_auto": bool_to_text(overlay_visible),
+        "ocr_start_time": "",
+        "ocr_end_time": "",
+        "ocr_status": "ocr_disabled",
+        "timestamp_overlay_visible_auto": "",
     }
 
 
@@ -764,8 +512,7 @@ def build_inventory_row(video_path: Path, input_root: Path) -> dict[str, str]:
 # ============================================================
 # Trusted time ranges and duplicate coverage planning
 # ============================================================
-def infer_trusted_video_interval(inventory_row: dict[str, str]) -> tuple[datetime | None, datetime | None,
-                                                                         str, datetime | None, datetime | None]:
+def infer_trusted_video_interval(inventory_row: dict[str, str]) -> tuple[datetime | None, datetime | None, str, datetime | None, datetime | None]:
     duration_seconds = safe_float(inventory_row.get("duration_seconds"))
     effective_start_time, start_source = choose_manual_or_auto_datetime(
         inventory_row,
@@ -783,13 +530,10 @@ def infer_trusted_video_interval(inventory_row: dict[str, str]) -> tuple[datetim
         return effective_start_time, effective_end_time, source_name, effective_start_time, effective_end_time
     if effective_start_time is not None and duration_seconds is not None and duration_seconds > 0:
         source_name = f"{start_source}_plus_duration".strip("_") or "manual_or_ocr_start_plus_duration"
-        return effective_start_time, effective_start_time + timedelta(seconds=duration_seconds),
-    source_name, effective_start_time, effective_end_time
-
+        return effective_start_time, effective_start_time + timedelta(seconds=duration_seconds), source_name, effective_start_time, effective_end_time
     if effective_end_time is not None and duration_seconds is not None and duration_seconds > 0:
         source_name = f"{end_source}_minus_duration".strip("_") or "manual_or_ocr_end_minus_duration"
-        return effective_end_time - timedelta(seconds=duration_seconds), effective_end_time, source_name,
-    effective_start_time, effective_end_time
+        return effective_end_time - timedelta(seconds=duration_seconds), effective_end_time, source_name, effective_start_time, effective_end_time
     return None, None, "insufficient_time_mapping", effective_start_time, effective_end_time
 
 
@@ -1070,8 +814,7 @@ def run_ffmpeg_to_temp(command_prefix: list[str], final_path: Path) -> tuple[boo
     return True, "ok"
 
 
-def make_preview_clip(source_path: Path, preview_path: Path, start_seconds: float,
-                      duration_seconds: float) -> tuple[bool, str]:
+def make_preview_clip(source_path: Path, preview_path: Path, start_seconds: float, duration_seconds: float) -> tuple[bool, str]:
     if preview_path.exists() and not OVERWRITE_EXISTING_OUTPUTS:
         return True, "existing"
 
@@ -1088,8 +831,7 @@ def make_preview_clip(source_path: Path, preview_path: Path, start_seconds: floa
     return run_ffmpeg_to_temp(command_prefix, preview_path)
 
 
-def standardize_clip(source_path: Path, output_path: Path, start_seconds: float,
-                     duration_seconds: float) -> tuple[bool, str]:
+def standardize_clip(source_path: Path, output_path: Path, start_seconds: float, duration_seconds: float) -> tuple[bool, str]:
     if output_path.exists() and not OVERWRITE_EXISTING_OUTPUTS:
         return True, "existing"
 
@@ -1603,6 +1345,7 @@ def print_clip_export_summary(clip_rows: list[dict[str, str]], project_root: Pat
             print(f"  {row.get('clip_id', '')}: {row.get('standardization_error', '')}")
 
 
+
 # ============================================================
 # Review inventory helpers
 # ============================================================
@@ -1874,6 +1617,9 @@ if __name__ == "__main__":
     main()
 
 
+from utils.base import PipelineContext, PipelineStage
+
+
 class VideoPreparationPipeline(PipelineStage):
     def run(self) -> None:
         global INPUT_PATH, PROJECT_ROOT, RECURSIVE
@@ -1884,8 +1630,7 @@ class VideoPreparationPipeline(PipelineStage):
         global TARGET_CONTAINER_SUFFIX, TARGET_VIDEO_CODEC, TARGET_PRESET, TARGET_CRF, TARGET_FPS, TARGET_WIDTH, TARGET_HEIGHT, PIXEL_FORMAT
         global DEDUPE_OVERLAP_TOLERANCE_SECONDS, MIN_OUTPUT_SEGMENT_SECONDS, SKIP_VIDEOS_WITHOUT_TRUSTED_TIME_RANGE, CLEAN_STALE_TEMP_OUTPUTS_ON_START, TEMP_OUTPUT_SUFFIX
         global SCENE_FRAME_SAMPLE_RATIOS, SCENE_FRAME_JPEG_QUALITY
-        global CROP_X, CROP_Y, CROP_W, CROP_H
-        global FRAME_OFFSETS, THRESHOLDS, OCR_TIMEOUT_SECONDS, TESSERACT_CONFIGS, TIME_ALIGNMENT_TOLERANCE_SECONDS
+        global TIME_ALIGNMENT_TOLERANCE_SECONDS
 
         INPUT_PATH = str(self.context.input_path)
         PROJECT_ROOT = str(self.context.project_root)
@@ -1929,15 +1674,6 @@ class VideoPreparationPipeline(PipelineStage):
         SCENE_FRAME_SAMPLE_RATIOS = list(self.context.scene_frame_sample_ratios)
         SCENE_FRAME_JPEG_QUALITY = self.context.scene_frame_jpeg_quality
 
-        CROP_X = self.context.crop_x
-        CROP_Y = self.context.crop_y
-        CROP_W = self.context.crop_w
-        CROP_H = self.context.crop_h
-
-        FRAME_OFFSETS = list(self.context.frame_offsets)
-        THRESHOLDS = list(self.context.thresholds)
-        OCR_TIMEOUT_SECONDS = self.context.ocr_timeout_seconds
-        TESSERACT_CONFIGS = list(self.context.tesseract_configs)
         TIME_ALIGNMENT_TOLERANCE_SECONDS = self.context.time_alignment_tolerance_seconds
 
         self.logger.info("Starting video preparation for {}.", INPUT_PATH)

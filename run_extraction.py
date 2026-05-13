@@ -133,22 +133,11 @@ def build_config() -> PipelineContext:
 
         scene_frame_sample_ratios=cfg("scene_frame_sample_ratios", [0.05, 0.25, 0.50, 0.75, 0.95]),
         scene_frame_jpeg_quality=cfg("scene_frame_jpeg_quality", 95),
-
         crop_x=cfg("crop_x", 0.015),
         crop_y=cfg("crop_y", 0.020),
         crop_w=cfg("crop_w", 0.310),
         crop_h=cfg("crop_h", 0.080),
 
-        frame_offsets=cfg("frame_offsets", [0, 2, 5, 10]),
-        thresholds=cfg("thresholds", [140, 170, 200, 225]),
-        ocr_timeout_seconds=cfg("ocr_timeout_seconds", 1.5),
-        tesseract_configs=cfg(
-            "tesseract_configs",
-            [
-                "--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789:/- APMapm",
-                "--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789:/- APMapm",
-            ],
-        ),
         time_alignment_tolerance_seconds=cfg("time_alignment_tolerance_seconds", 5.0),
     )
 
